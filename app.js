@@ -21,7 +21,7 @@ function renderCrumb(){
  if(page.brand){let x=brands.find(a=>a.id===page.brand);h+=' / <span>'+esc(x?.name||"Brand")+'</span>'}
  c.innerHTML=h;c.querySelectorAll("[data-level]").forEach(b=>b.onclick=()=>{if(b.dataset.level==="home")navigate({level:"home"});else navigate({level:"brands",category:page.category})})
 }
-function tileImage(url,name){return url?`<img loading="lazy" src="${esc(url)}" alt="${esc(name)}" onerror="this.style.display='none'">`:`<span class="placeholder">${esc(name)}</span>`}
+function tileImage(url,name){return url?`<img loading="lazy" src="${esc(url)}" alt="${esc(name)}" onerror="this.outerHTML='<span class=\"placeholder\">${esc(name)}</span>'">`:`<span class="placeholder">${esc(name)}</span>`}
 function render(){
  renderCrumb();const root=$("shopView");
  if(page.level==="home"){
