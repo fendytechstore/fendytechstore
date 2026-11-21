@@ -28,3 +28,14 @@
 body.zoom-open{overflow:hidden;}
 @media(max-width:900px){.category-grid,.brand-grid{grid-template-columns:repeat(4,minmax(0,1fr));}.product-grid{grid-template-columns:repeat(3,minmax(0,1fr));}}
 @media(max-width:650px){.category-grid,.brand-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;}.category-card,.brand-card{padding:10px 8px;gap:8px;}.category-card img,.brand-card img{height:105px;width:100%;max-width:100%;}.product-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;}.product-photo{height:auto;aspect-ratio:1/1;padding:8px;}.product-info{padding:10px;}.detail-photo{aspect-ratio:1/1;min-height:0;padding:12px;}.detail-photo img{height:100%;max-height:72vw;}.detail-layout{grid-template-columns:minmax(0,1fr);gap:18px;}.zoom-hint{font-size:10px;bottom:6px;}}
+
+/* V3 refinements requested: card-matched detail photo, authentic TAM mark, side-by-side promo/bonus */
+.product-photo{position:relative;}
+.product-photo .promo{left:9px;right:auto;top:9px;}
+.product-photo .bonus-badge{left:auto;right:9px;top:9px;background:#fff5d9;color:#8a5700;}
+.product-photo .tam-logo{position:absolute;z-index:3;right:9px;top:50%;transform:translateY(-50%);width:48px;height:auto;max-height:32px;object-fit:contain;background:rgba(255,255,255,.94);border-radius:5px;padding:3px 4px;box-shadow:0 1px 5px #0002;}
+.detail-photo{display:grid;place-items:center;aspect-ratio:1/1;height:auto;min-height:0;padding:12px;overflow:hidden;cursor:zoom-in;}
+.detail-photo img:not(.tam-logo){display:block;width:100%;height:100%;max-width:100%;max-height:100%;min-width:0;min-height:0;object-fit:contain;object-position:center;}
+.detail-photo .tam-logo{right:12px;top:50%;}
+.detail-photo .zoom-hint{z-index:4;background:linear-gradient(transparent,rgba(255,255,255,.86));padding:12px 4px 5px;}
+@media(max-width:650px){.detail-photo{aspect-ratio:1/1;height:auto;padding:8px;}.detail-photo img:not(.tam-logo){height:100%;max-height:100%;}.detail-photo .tam-logo{right:8px;}}
