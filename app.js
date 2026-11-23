@@ -1,6 +1,6 @@
 const C=window.STORE_CONFIG||{},db=window.supabase?.createClient(C.SUPABASE_URL||"",C.SUPABASE_ANON_KEY||"");
 const $=id=>document.getElementById(id),esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])),rupiah=n=>"Rp"+Number(n||0).toLocaleString("id-ID"),price=p=>p.promo_price&&+p.promo_price>0&&+p.promo_price<+p.price?+p.promo_price:+p.price;
-let cats=[],brands=[],items=[],settings={},basket=[],activeCat=null,activeBrand=null,activeProduct=null,query="",sort="new",categoryGridScroll=0;
+let cats=[],brands=[],items=[],settings={},basket=[],activeCat=null,activeBrand=null,activeProduct=null,query="",sort="new",categoryGridScroll=0,searchHistoryActive=false;
 // Biarkan browser dan aplikasi mengelola riwayat scroll secara konsisten.
 if("scrollRestoration" in history) history.scrollRestoration="manual";
 const valid=()=>db&&C.SUPABASE_URL&&!C.SUPABASE_URL.includes("PROJECT-REF")&&C.SUPABASE_ANON_KEY&&!C.SUPABASE_ANON_KEY.startsWith("ISI_");
@@ -73,11 +73,33 @@ function add(id){let p=items.find(x=>x.id===id);if(!p)return;let r=basket.find(x
 function renderBasket(){$("cartCount").textContent=basket.reduce((n,x)=>n+x.qty,0);$("cartItems").innerHTML=basket.length?basket.map(x=>`<div class="line"><span>${esc(x.name)}<br>${rupiah(x.price)} × ${x.qty}</span><span><b>${rupiah(x.price*x.qty)}</b><br><button data-remove="${esc(x.id)}">Hapus</button></span></div>`).join(""):"<p>Keranjang masih kosong.</p>";$("total").textContent="Subtotal: "+rupiah(basket.reduce((n,x)=>n+x.price*x.qty,0));document.querySelectorAll("[data-remove]").forEach(b=>b.onclick=()=>{basket=basket.filter(x=>x.id!==b.dataset.remove);renderBasket()})}
 async function checkout(method){if(!basket.length)return toast("Keranjang masih kosong");let name=$("customerName").value.trim(),phone=$("customerPhone").value.trim(),address=$("customerAddress").value.trim(),note=$("customerNote").value.trim();if(!name||!phone)return toast("Isi nama dan nomor WhatsApp");if(!valid())return toast("Database belum tersambung");let subtotal=basket.reduce((n,x)=>n+x.price*x.qty,0),code="FTS-"+Date.now().toString().slice(-9),message=`Pesanan ${code}\nNama: ${name}\nWA: ${phone}\nAlamat: ${address||"-"}\n${basket.map(x=>`- ${x.name} x${x.qty} = ${rupiah(x.price*x.qty)}`).join("\n")}\nSubtotal: ${rupiah(subtotal)}\nCatatan: ${note||"-"}`;let {error}=await db.from("orders").insert({order_code:code,customer_name:name,customer_phone:phone,customer_address:address,customer_note:note,checkout_method:method,items:basket,subtotal,status:"menunggu pembayaran"});if(error)return toast("Pesanan gagal: "+error.message);if(method==="whatsapp")window.open("https://wa.me/"+(C.WHATSAPP_ADMIN||"")+"?text="+encodeURIComponent(message),"_blank");else alert("Pesanan "+code+" berhasil dibuat. Admin akan menghubungi untuk verifikasi pembayaran.");basket=[];renderBasket();$("cartModal").hidden=true}
 function syncSearchClear(){const b=$("clearSearch");if(b)b.hidden=!String($("search").value||"").trim()}
-function search(q){query=q.toLowerCase().trim();syncSearchClear();if(!query){$("searchSection").hidden=true;if(activeBrand)showSections("products");else if(activeCat)showSections("brands");else showSections("cats");return}showSections("search");let found=items.filter(p=>[p.name,p.brands?.name,p.specs,p.bonus].join(" ").toLowerCase().includes(query));$("searchHeading").textContent=`Hasil untuk "${q}" (${found.length})`;renderProductCards(found,"searchResults")}
+function search(q){
+ const next=String(q||"").toLowerCase().trim();
+ if(next&&!query&&!searchHistoryActive){
+  searchHistoryActive=true;
+  history.pushState({view:"search",query:next,scroll:window.scrollY,scrollX:window.scrollX},"",location.href);
+ } else if(next&&searchHistoryActive&&history.state?.view==="search"){
+  history.replaceState({...history.state,query:next,scroll:window.scrollY,scrollX:window.scrollX},"",location.href);
+ }
+ query=next;syncSearchClear();
+ if(!query){$("searchSection").hidden=true;if(activeBrand)showSections("products");else if(activeCat)showSections("brands");else showSections("cats");return}
+ showSections("search");let found=items.filter(p=>[p.name,p.brands?.name,p.specs,p.bonus].join(" ").toLowerCase().includes(query));$("searchHeading").textContent=`Hasil untuk "${q}" (${found.length})`;renderProductCards(found,"searchResults")
+}
 if("scrollRestoration" in history)history.scrollRestoration="manual";
 window.addEventListener("popstate",e=>{
  if($("imageZoom")&&!$("imageZoom").hidden){closeImageZoom(true);return}
  const st=e.state||{};
+ // Satu Back dari hasil pencarian menutup pencarian seperti tombol X.
+ // Saat kembali dari detail, detailView masih terlihat sehingga hasil pencarian dipulihkan.
+ if($("detailView").hidden && String($("search").value||"").trim() && st.view!=="search"){
+  searchHistoryActive=false;
+  $("search").value="";
+  query="";
+  syncSearchClear();
+  if(activeBrand)showSections("products");else if(activeCat)showSections("brands");else showSections("cats");
+  return;
+ }
+ if(st.view==="search")searchHistoryActive=true;
  if(st.view==="imageZoom"){closeImageZoom(true);return}
  if(st.view==="category"||st.view==="brand"){
   activeProduct=null;query="";$("search").value="";
@@ -113,4 +135,4 @@ window.addEventListener("popstate",e=>{
  else if(cat){chooseCategory(cat,false);if(brand)chooseBrand(brand,false)}
  else routeHome(false,true)
 });
-document.addEventListener("DOMContentLoaded",()=>{if(!$("categories"))return;$("year").textContent=new Date().getFullYear();document.querySelectorAll("[data-home]").forEach(a=>a.onclick=e=>{e.preventDefault();routeHome();$("shop").scrollIntoView({behavior:"smooth"})});$("menuBtn").onclick=()=>$("menuPanel").hidden=!$("menuPanel").hidden;$("menuClose").onclick=()=>$("menuPanel").hidden=true;$("loginToggle").onclick=()=>$("loginInline").hidden=!$("loginInline").hidden;$("loginInline").onsubmit=async e=>{e.preventDefault();if(!valid())return toast("Database belum dikonfigurasi");let {error}=await db.auth.signInWithPassword({email:$("loginEmail").value,password:$("loginPassword").value});if(error)return toast(error.message);location.href="admin.html"};$("cartOpen").onclick=()=>$("cartModal").hidden=false;$("search").oninput=e=>search(e.target.value);$("search").onsearch=e=>search(e.target.value);$("clearSearch").onclick=()=>{$("search").value="";search("");syncSearchClear();};syncSearchClear();$("sort").onchange=e=>{sort=e.target.value;if(activeBrand)renderProductCards(items.filter(p=>p.brand_id===activeBrand.id&&(p.category_id===activeCat?.id||!p.category_id)));};$("backCategory").onclick=returnToCategories;$("backBrand").onclick=()=>activeCat&&chooseCategory(activeCat.id);$("detailBack").onclick=()=>history.back();$("zoomClose").onclick=closeImageZoom;$("imageZoom").onclick=e=>{if(e.target===$("imageZoom"))closeImageZoom()};document.addEventListener("keydown",e=>{if(e.key==="Escape")closeImageZoom()});$("shareDetail").onclick=shareProduct;$("waCheckout").onclick=()=>checkout("whatsapp");$("webCheckout").onclick=()=>checkout("website");document.querySelectorAll("[data-close]").forEach(b=>b.onclick=()=>$(b.dataset.close).hidden=true);document.querySelectorAll(".overlay").forEach(m=>m.onclick=e=>{if(e.target===m)m.hidden=true});renderBasket();load()});
+document.addEventListener("DOMContentLoaded",()=>{if(!$("categories"))return;$("year").textContent=new Date().getFullYear();document.querySelectorAll("[data-home]").forEach(a=>a.onclick=e=>{e.preventDefault();routeHome();$("shop").scrollIntoView({behavior:"smooth"})});$("menuBtn").onclick=()=>$("menuPanel").hidden=!$("menuPanel").hidden;$("menuClose").onclick=()=>$("menuPanel").hidden=true;$("loginToggle").onclick=()=>$("loginInline").hidden=!$("loginInline").hidden;$("loginInline").onsubmit=async e=>{e.preventDefault();if(!valid())return toast("Database belum dikonfigurasi");let {error}=await db.auth.signInWithPassword({email:$("loginEmail").value,password:$("loginPassword").value});if(error)return toast(error.message);location.href="admin.html"};$("cartOpen").onclick=()=>$("cartModal").hidden=false;$("search").oninput=e=>search(e.target.value);$("search").onsearch=e=>search(e.target.value);$("clearSearch").onclick=()=>{if(searchHistoryActive&&history.state?.view==="search"){history.back();return;}$("search").value="";query="";searchHistoryActive=false;search("");syncSearchClear();};syncSearchClear();$("sort").onchange=e=>{sort=e.target.value;if(activeBrand)renderProductCards(items.filter(p=>p.brand_id===activeBrand.id&&(p.category_id===activeCat?.id||!p.category_id)));};$("backCategory").onclick=returnToCategories;$("backBrand").onclick=()=>activeCat&&chooseCategory(activeCat.id);$("detailBack").onclick=()=>history.back();$("zoomClose").onclick=closeImageZoom;$("imageZoom").onclick=e=>{if(e.target===$("imageZoom"))closeImageZoom()};document.addEventListener("keydown",e=>{if(e.key==="Escape")closeImageZoom()});$("shareDetail").onclick=shareProduct;$("waCheckout").onclick=()=>checkout("whatsapp");$("webCheckout").onclick=()=>checkout("website");document.querySelectorAll("[data-close]").forEach(b=>b.onclick=()=>$(b.dataset.close).hidden=true);document.querySelectorAll(".overlay").forEach(m=>m.onclick=e=>{if(e.target===m)m.hidden=true});renderBasket();load()});
