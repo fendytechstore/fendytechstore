@@ -25,7 +25,8 @@ function renderAdSlider(){
  if(!banners.length){root.hidden=true;return}
  root.hidden=false;bannerIndex=0;
  const slideHTML=(b,i,clone=false)=>`<button class="ad-slide" type="button" data-ad-index="${i}" aria-label="Iklan ${i+1} dari ${banners.length}" ${clone?'data-ad-clone="true"':''}><img src="${esc(storageUrl(b.image_url))}" alt="${esc(b.title||"Iklan promosi")}" loading="${i===0?"eager":"lazy"}"></button>`;
- track.innerHTML=slideHTML(banners[banners.length-1],banners.length-1,true)+banners.map((b,i)=>slideHTML(b,i)).join("")+slideHTML(banners[0],0,true);
+ const originals=banners.map((b,i)=>slideHTML(b,i)).join("");
+ track.innerHTML=slideHTML(banners[banners.length-1],banners.length-1,true)+originals+slideHTML(banners[0],0,true);
  ind.innerHTML=`<span id="adPosition">1 / ${banners.length}</span><span class="ad-dots">${banners.map((_,i)=>`<i class="ad-dot ${i===0?"active":""}"></i>`).join("")}</span>`;
  let physicalIndex=1,animating=false;
  const updateIndicators=()=>{const pos=$("adPosition");if(pos)pos.textContent=`${bannerIndex+1} / ${banners.length}`;ind.querySelectorAll(".ad-dot").forEach((d,n)=>d.classList.toggle("active",n===bannerIndex))};
@@ -39,53 +40,18 @@ function renderAdSlider(){
  };
  track.addEventListener("transitionend",e=>{
    if(e.target!==track||e.propertyName!=="transform")return;
-   if(physicalIndex===0)setPosition(banners.length,false);
-   else if(physicalIndex===banners.length+1)setPosition(1,false);
+   if(physicalIndex===0){setPosition(banners.length,false)}
+   else if(physicalIndex===banners.length+1){setPosition(1,false)}
    animating=false;
  });
  const reveal=()=>{root.classList.add("show-indicators");clearTimeout(bannerIndicatorTimer);bannerIndicatorTimer=setTimeout(()=>root.classList.remove("show-indicators"),1700)};
- const openTarget=(b)=>{
-   if(!b)return;
-   if(b.target_type==="brand"&&b.target_brand_id){
-     const brand=brands.find(x=>String(x.id)===String(b.target_brand_id));
-     if(brand){activeCat=null;chooseBrand(brand.id);return}
-   }
-   if(b.target_type==="products"&&Array.isArray(b.target_product_ids)&&b.target_product_ids.length){
-     const ids=new Set(b.target_product_ids.map(String));
-     const selected=items.filter(p=>ids.has(String(p.id)));
-     activeCat=null;activeBrand=null;showSections("search");
-     $("searchHeading").textContent=b.title||"Produk pilihan";
-     renderProductCards(selected,"searchResults");
-     history.pushState({view:"home"},"","?iklan="+encodeURIComponent(b.id));
-     $("shop").scrollIntoView({behavior:"smooth",block:"start"});
-   }
- };
- // Delegated click handling: reliable for every slide, including the loop's cloned first/last slides.
- track.onclick=e=>{
-   const slide=e.target.closest(".ad-slide");
-   if(!slide||!track.contains(slide))return;
-   const b=banners[Number(slide.dataset.adIndex)];
-   openTarget(b);
- };
- // Pointer events unify touch, pen and mouse. A real swipe changes slides and cancels
- // the browser's synthetic click; a tap remains a normal, immediate click.
- let startX=0,startY=0,dragging=false,moved=false,pointerId=null;
- root.onpointerdown=e=>{
-   if(e.button!==undefined&&e.button!==0)return;
-   dragging=true;moved=false;pointerId=e.pointerId;startX=e.clientX;startY=e.clientY;
-   clearInterval(bannerTimer);
- };
- root.onpointerup=e=>{
-   if(!dragging||e.pointerId!==pointerId)return;
-   const dx=e.clientX-startX,dy=e.clientY-startY;
-   dragging=false;pointerId=null;
-   if(Math.abs(dx)>35&&Math.abs(dx)>Math.abs(dy)){
-     moved=true;e.preventDefault();
-     go(bannerIndex+(dx<0?1:-1));reveal();
-   }
-   restart();
- };
- root.onpointercancel=()=>{dragging=false;pointerId=null;restart()};
+ track.querySelectorAll("[data-ad-index]").forEach(el=>el.onclick=()=>{const b=banners[Number(el.dataset.adIndex)];if(!b)return;if(b.target_type==="brand"&&b.target_brand_id){const brand=brands.find(x=>x.id===b.target_brand_id);if(brand){activeCat=null;chooseBrand(brand.id);return}}if(b.target_type==="products"&&b.target_product_ids?.length){const selected=items.filter(p=>b.target_product_ids.includes(p.id));activeCat=null;activeBrand=null;showSections("search");$("searchHeading").textContent=b.title||"Produk pilihan";renderProductCards(selected,"searchResults");history.pushState({view:"home"},"","?iklan="+encodeURIComponent(b.id));$("shop").scrollIntoView({behavior:"smooth"});return}});
+ let startX=0,delta=0,drag=false;
+ root.ontouchstart=e=>{startX=e.touches[0].clientX;delta=0;drag=true;clearInterval(bannerTimer)};
+ root.ontouchmove=e=>{if(!drag)return;delta=e.touches[0].clientX-startX};
+ root.ontouchend=()=>{if(!drag)return;drag=false;if(Math.abs(delta)>35){go(bannerIndex+(delta<0?1:-1));reveal()}restart()};
+ root.onpointerdown=e=>{if(e.pointerType==="mouse"){startX=e.clientX;delta=0;drag=true;clearInterval(bannerTimer)}};
+ root.onpointerup=e=>{if(e.pointerType==="mouse"&&drag){delta=e.clientX-startX;drag=false;if(Math.abs(delta)>35){go(bannerIndex+(delta<0?1:-1));reveal()}restart()}};
  function restart(){clearInterval(bannerTimer);bannerTimer=setInterval(()=>go(bannerIndex+1),10000)}
  setPosition(1,false);updateIndicators();restart();
 }
