@@ -21,13 +21,31 @@ else routeHome(false);
 function renderAdSlider(){
  const root=$("adSlider"),track=$("adTrack"),ind=$("adIndicators");
  if(!root||!track||!ind)return;
- if(!banners.length){root.hidden=true;clearInterval(bannerTimer);return}
+ clearInterval(bannerTimer);clearTimeout(bannerIndicatorTimer);
+ if(!banners.length){root.hidden=true;return}
  root.hidden=false;bannerIndex=0;
- track.innerHTML=banners.map((b,i)=>`<button class="ad-slide" type="button" data-ad-index="${i}" aria-label="Iklan ${i+1} dari ${banners.length}"><img src="${esc(storageUrl(b.image_url))}" alt="${esc(b.title||"Iklan promosi")}" loading="${i===0?"eager":"lazy"}"></button>`).join("");
+ const slideHTML=(b,i,clone=false)=>`<button class="ad-slide" type="button" data-ad-index="${i}" aria-label="Iklan ${i+1} dari ${banners.length}" ${clone?'data-ad-clone="true"':''}><img src="${esc(storageUrl(b.image_url))}" alt="${esc(b.title||"Iklan promosi")}" loading="${i===0?"eager":"lazy"}"></button>`;
+ const originals=banners.map((b,i)=>slideHTML(b,i)).join("");
+ track.innerHTML=slideHTML(banners[banners.length-1],banners.length-1,true)+originals+slideHTML(banners[0],0,true);
  ind.innerHTML=`<span id="adPosition">1 / ${banners.length}</span><span class="ad-dots">${banners.map((_,i)=>`<i class="ad-dot ${i===0?"active":""}"></i>`).join("")}</span>`;
- const go=i=>{bannerIndex=(i+banners.length)%banners.length;track.style.transform=`translateX(-${bannerIndex*100}%)`;const pos=$("adPosition");if(pos)pos.textContent=`${bannerIndex+1} / ${banners.length}`;ind.querySelectorAll(".ad-dot").forEach((d,n)=>d.classList.toggle("active",n===bannerIndex))};
+ let physicalIndex=1,animating=false;
+ const updateIndicators=()=>{const pos=$("adPosition");if(pos)pos.textContent=`${bannerIndex+1} / ${banners.length}`;ind.querySelectorAll(".ad-dot").forEach((d,n)=>d.classList.toggle("active",n===bannerIndex))};
+ const setPosition=(index,animate=true)=>{track.style.transition=animate?"":"none";track.style.transform=`translateX(-${index*100}%)`;physicalIndex=index;if(!animate){void track.offsetWidth;track.style.transition=""}};
+ const go=(logical,animate=true)=>{
+   if(animating&&animate)return;
+   bannerIndex=(logical+banners.length)%banners.length;
+   const target=logical<0?0:(logical>=banners.length?banners.length+1:bannerIndex+1);
+   animating=animate&&(target!==physicalIndex);
+   setPosition(target,animate);updateIndicators();
+ };
+ track.addEventListener("transitionend",e=>{
+   if(e.target!==track||e.propertyName!=="transform")return;
+   if(physicalIndex===0){setPosition(banners.length,false)}
+   else if(physicalIndex===banners.length+1){setPosition(1,false)}
+   animating=false;
+ });
  const reveal=()=>{root.classList.add("show-indicators");clearTimeout(bannerIndicatorTimer);bannerIndicatorTimer=setTimeout(()=>root.classList.remove("show-indicators"),1700)};
- track.querySelectorAll("[data-ad-index]").forEach((el,i)=>el.onclick=()=>{const b=banners[i];if(b.target_type==="brand"&&b.target_brand_id){const brand=brands.find(x=>x.id===b.target_brand_id);if(brand){activeCat=null;chooseBrand(brand.id);return}}if(b.target_type==="products"&&b.target_product_ids?.length){const selected=items.filter(p=>b.target_product_ids.includes(p.id));activeCat=null;activeBrand=null;showSections("search");$("searchHeading").textContent=b.title||"Produk pilihan";renderProductCards(selected,"searchResults");history.pushState({view:"home"},"","?iklan="+encodeURIComponent(b.id));$("shop").scrollIntoView({behavior:"smooth"});return}});
+ track.querySelectorAll("[data-ad-index]").forEach(el=>el.onclick=()=>{const b=banners[Number(el.dataset.adIndex)];if(!b)return;if(b.target_type==="brand"&&b.target_brand_id){const brand=brands.find(x=>x.id===b.target_brand_id);if(brand){activeCat=null;chooseBrand(brand.id);return}}if(b.target_type==="products"&&b.target_product_ids?.length){const selected=items.filter(p=>b.target_product_ids.includes(p.id));activeCat=null;activeBrand=null;showSections("search");$("searchHeading").textContent=b.title||"Produk pilihan";renderProductCards(selected,"searchResults");history.pushState({view:"home"},"","?iklan="+encodeURIComponent(b.id));$("shop").scrollIntoView({behavior:"smooth"});return}});
  let startX=0,delta=0,drag=false;
  root.ontouchstart=e=>{startX=e.touches[0].clientX;delta=0;drag=true;clearInterval(bannerTimer)};
  root.ontouchmove=e=>{if(!drag)return;delta=e.touches[0].clientX-startX};
@@ -35,7 +53,7 @@ function renderAdSlider(){
  root.onpointerdown=e=>{if(e.pointerType==="mouse"){startX=e.clientX;delta=0;drag=true;clearInterval(bannerTimer)}};
  root.onpointerup=e=>{if(e.pointerType==="mouse"&&drag){delta=e.clientX-startX;drag=false;if(Math.abs(delta)>35){go(bannerIndex+(delta<0?1:-1));reveal()}restart()}};
  function restart(){clearInterval(bannerTimer);bannerTimer=setInterval(()=>go(bannerIndex+1),10000)}
- go(0);restart();
+ setPosition(1,false);updateIndicators();restart();
 }
 function storageUrl(path){
   const raw=String(path||"").trim(); if(!raw)return "";
