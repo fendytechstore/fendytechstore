@@ -1,6 +1,6 @@
 const C=window.STORE_CONFIG||{},db=window.supabase?.createClient(C.SUPABASE_URL||"",C.SUPABASE_ANON_KEY||"");
 const $=id=>document.getElementById(id),esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])),rupiah=n=>"Rp"+Number(n||0).toLocaleString("id-ID"),price=p=>p.promo_price&&+p.promo_price>0&&+p.promo_price<+p.price?+p.promo_price:+p.price;
-let cats=[],brands=[],items=[],settings={},basket=[],activeCat=null,activeBrand=null,activeProduct=null,query="",sort="new",categoryGridScroll=0,searchHistoryActive=false;
+let cats=[],brands=[],items=[],settings={},banners=[],bannerIndex=0,bannerTimer=null,bannerIndicatorTimer=null,basket=[],activeCat=null,activeBrand=null,activeProduct=null,query="",sort="new",categoryGridScroll=0,searchHistoryActive=false;
 // Biarkan browser dan aplikasi mengelola riwayat scroll secara konsisten.
 if("scrollRestoration" in history) history.scrollRestoration="manual";
 const valid=()=>db&&C.SUPABASE_URL&&!C.SUPABASE_URL.includes("PROJECT-REF")&&C.SUPABASE_ANON_KEY&&!C.SUPABASE_ANON_KEY.startsWith("ISI_");
@@ -8,14 +8,34 @@ function toast(s){let t=$("toast");t.textContent=s;t.classList.add("show");setTi
 function setting(k){return settings[k]||""}
 async function fetchAllStoreProducts(){let out=[],from=0,batch=1000;while(true){let {data,error}=await db.from("products").select("*,brands(name)").eq("is_active",true).neq("status","tidak dijual").order("id").range(from,from+batch-1);if(error)throw error;out.push(...(data||[]));if(!data||data.length<batch)break;from+=batch}return out}
 async function load(){if(!valid()){$("categories").innerHTML='<p class="notice">Koneksi database belum diatur. Lengkapi config.js dan ikuti SETUP.md.</p>';return}
-const [a,b,c,s]=await Promise.all([db.from("categories").select("*").eq("is_active",true).order("sort_order"),db.from("brands").select("*").eq("is_active",true).order("name"),fetchAllStoreProducts(),db.from("store_settings").select("key,value")]);
+const [a,b,c,s,ad]=await Promise.all([db.from("categories").select("*").eq("is_active",true).order("sort_order"),db.from("brands").select("*").eq("is_active",true).order("name"),fetchAllStoreProducts(),db.from("store_settings").select("key,value"),db.from("banners").select("*").eq("is_active",true).order("sort_order")]);
 if(a.error||b.error){$("categories").innerHTML='<p class="empty">Gagal memuat katalog. Pastikan SQL setup terbaru sudah dijalankan.</p>';return}
-cats=a.data||[];brands=b.data||[];items=c.sort((a,b)=>{const na=Number(String(a.id).match(/^P0*(\\d+)$/i)?.[1]||99999999),nb=Number(String(b.id).match(/^P0*(\\d+)$/i)?.[1]||99999999);return na-nb});(s.data||[]).forEach(x=>settings[x.key]=x.value);
+cats=a.data||[];brands=b.data||[];items=c.sort((a,b)=>{const na=Number(String(a.id).match(/^P0*(\\d+)$/i)?.[1]||99999999),nb=Number(String(b.id).match(/^P0*(\\d+)$/i)?.[1]||99999999);return na-nb});(s.data||[]).forEach(x=>settings[x.key]=x.value);banners=ad.error?[]:(ad.data||[]);renderAdSlider();
 $("catCount").textContent=cats.length+" kategori";renderCategories();renderMenu();bindInfo();
 const u=new URL(location.href),slug=u.searchParams.get("produk"),cat=u.searchParams.get("kategori"),brand=u.searchParams.get("brand");
 if(slug){let product=items.find(x=>x.slug===slug);if(product)renderDetail(product,false);else routeHome(false)}
 else if(cat){let c=cats.find(x=>x.id===cat);if(c){chooseCategory(cat,false);if(brand){let b=brands.find(x=>x.id===brand);if(b)renderProductsForBrand(b,false)}}}
 else routeHome(false);
+}
+
+function renderAdSlider(){
+ const root=$("adSlider"),track=$("adTrack"),ind=$("adIndicators");
+ if(!root||!track||!ind)return;
+ if(!banners.length){root.hidden=true;clearInterval(bannerTimer);return}
+ root.hidden=false;bannerIndex=0;
+ track.innerHTML=banners.map((b,i)=>`<button class="ad-slide" type="button" data-ad-index="${i}" aria-label="Iklan ${i+1} dari ${banners.length}"><img src="${esc(storageUrl(b.image_url))}" alt="${esc(b.title||"Iklan promosi")}" loading="${i===0?"eager":"lazy"}"></button>`).join("");
+ ind.innerHTML=`<span id="adPosition">1 / ${banners.length}</span><span class="ad-dots">${banners.map((_,i)=>`<i class="ad-dot ${i===0?"active":""}"></i>`).join("")}</span>`;
+ const go=i=>{bannerIndex=(i+banners.length)%banners.length;track.style.transform=`translateX(-${bannerIndex*100}%)`;const pos=$("adPosition");if(pos)pos.textContent=`${bannerIndex+1} / ${banners.length}`;ind.querySelectorAll(".ad-dot").forEach((d,n)=>d.classList.toggle("active",n===bannerIndex))};
+ const reveal=()=>{root.classList.add("show-indicators");clearTimeout(bannerIndicatorTimer);bannerIndicatorTimer=setTimeout(()=>root.classList.remove("show-indicators"),1700)};
+ track.querySelectorAll("[data-ad-index]").forEach((el,i)=>el.onclick=()=>{const b=banners[i];if(b.target_type==="brand"&&b.target_brand_id){const brand=brands.find(x=>x.id===b.target_brand_id);if(brand){activeCat=null;chooseBrand(brand.id);return}}if(b.target_type==="products"&&b.target_product_ids?.length){const selected=items.filter(p=>b.target_product_ids.includes(p.id));activeCat=null;activeBrand=null;showSections("search");$("searchHeading").textContent=b.title||"Produk pilihan";renderProductCards(selected,"searchResults");history.pushState({view:"home"},"","?iklan="+encodeURIComponent(b.id));$("shop").scrollIntoView({behavior:"smooth"});return}});
+ let startX=0,delta=0,drag=false;
+ root.ontouchstart=e=>{startX=e.touches[0].clientX;delta=0;drag=true;clearInterval(bannerTimer)};
+ root.ontouchmove=e=>{if(!drag)return;delta=e.touches[0].clientX-startX};
+ root.ontouchend=()=>{if(!drag)return;drag=false;if(Math.abs(delta)>35){go(bannerIndex+(delta<0?1:-1));reveal()}restart()};
+ root.onpointerdown=e=>{if(e.pointerType==="mouse"){startX=e.clientX;delta=0;drag=true;clearInterval(bannerTimer)}};
+ root.onpointerup=e=>{if(e.pointerType==="mouse"&&drag){delta=e.clientX-startX;drag=false;if(Math.abs(delta)>35){go(bannerIndex+(delta<0?1:-1));reveal()}restart()}};
+ function restart(){clearInterval(bannerTimer);bannerTimer=setInterval(()=>go(bannerIndex+1),10000)}
+ go(0);restart();
 }
 function storageUrl(path){
   const raw=String(path||"").trim(); if(!raw)return "";
@@ -60,7 +80,7 @@ function routeHome(push=true,restore=false){activeCat=null;activeBrand=null;acti
 function returnToCategories(){routeHome(true,true)}
 function chooseCategory(id,push=true){if(push&&$("categorySection")&&!$("categorySection").hidden)categoryGridScroll=window.scrollY;activeCat=cats.find(c=>c.id===id);if(!activeCat)return;activeBrand=null;showSections("brands");$("brandHeading").textContent="Brand "+activeCat.name;let list=brands.filter(b=>b.category_id===id||items.some(p=>p.category_id===id&&p.brand_id===b.id));$("brands").innerHTML=list.map(b=>`<button class="brand-card" data-brand="${esc(b.id)}">${img(b.image_url,b.name)}<span><b>${esc(b.name)}</b><small>${items.filter(p=>p.category_id===id&&p.brand_id===b.id).length} produk</small></span></button>`).join("")||'<p class="empty">Brand untuk kategori ini belum tersedia.</p>';document.querySelectorAll("[data-brand]").forEach(b=>b.onclick=()=>chooseBrand(b.dataset.brand));crumb([{name:"Home"},{name:activeCat.name}]);if(push)history.pushState({view:"category",cat:id,scroll:0},"","?kategori="+encodeURIComponent(id));requestAnimationFrame(()=>window.scrollTo({left:0,top:0,behavior:"instant"}))}
 function chooseBrand(id,push=true){let b=brands.find(x=>x.id===id);if(b)renderProductsForBrand(b,push)}
-function renderProductsForBrand(b,push=true){activeBrand=b;showSections("products");$("productHeading").textContent=b.name;renderProductCards(items.filter(p=>p.brand_id===b.id&&(p.category_id===activeCat?.id||!p.category_id)));crumb([{name:"Home"},{name:activeCat?.name||"Kategori"},{name:b.name}]);if(push)history.pushState({view:"brand",cat:activeCat?.id,brand:b.id,scroll:0},"","?kategori="+encodeURIComponent(activeCat?.id||"")+"&brand="+encodeURIComponent(b.id));requestAnimationFrame(()=>window.scrollTo({left:0,top:0,behavior:"instant"}))}
+function renderProductsForBrand(b,push=true){activeBrand=b;showSections("products");$("productHeading").textContent=b.name;renderProductCards(items.filter(p=>p.brand_id===b.id&&(!activeCat||p.category_id===activeCat.id||!p.category_id)));crumb([{name:"Home"},{name:activeCat?.name||"Kategori"},{name:b.name}]);if(push)history.pushState({view:"brand",cat:activeCat?.id,brand:b.id,scroll:0},"","?kategori="+encodeURIComponent(activeCat?.id||"")+"&brand="+encodeURIComponent(b.id));requestAnimationFrame(()=>window.scrollTo({left:0,top:0,behavior:"instant"}))}
 function renderProductCards(list,target="products"){if(sort==="low")list.sort((a,b)=>price(a)-price(b));if(sort==="high")list.sort((a,b)=>price(b)-price(a));if(sort==="az")list.sort((a,b)=>a.name.localeCompare(b.name));$(target).innerHTML=list.map(p=>`<article class="product-card" data-product="${esc(p.slug)}"><div class="product-photo">${promoBadge(p)}${tamMark(p)}${img(p.image_url,p.name)}</div><div class="product-info"><small>${esc(p.brands?.name||"FENDY FREELANCE STORE")}</small><h3>${esc(p.name)}</h3>${p.promo_price&&+p.promo_price<+p.price?`<div class="old">${rupiah(p.price)}</div>`:""}<div class="price">${rupiah(price(p))}</div>${discountPercent(p)?`<div class="promo-saving">🔥 PROMO HEMAT ${discountPercent(p)}%</div>`:""}<div class="product-actions"><button class="detail-action" data-detail="${esc(p.slug)}">Detail</button><button class="add-action" data-add="${esc(p.id)}">+ Keranjang</button></div></div></article>`).join("");if(target==="products")$("empty").hidden=!!list.length;document.querySelectorAll("[data-detail]").forEach(b=>b.onclick=e=>{e.stopPropagation();let p=items.find(x=>x.slug===b.dataset.detail);if(p)renderDetail(p)});document.querySelectorAll("[data-product]").forEach(b=>b.onclick=e=>{if(e.target.closest("button"))return;let p=items.find(x=>x.slug===b.dataset.product);if(p)renderDetail(p)});document.querySelectorAll("[data-add]").forEach(b=>b.onclick=e=>{e.stopPropagation();add(b.dataset.add)})}
 function renderDetail(p,push=true){
  const returnState=push?{view:query?"search":activeBrand?"brand":activeCat?"category":"home",query:$("search").value||query,cat:activeCat?.id,brand:activeBrand?.id,scroll:window.scrollY,scrollX:window.scrollX}:null;

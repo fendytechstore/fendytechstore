@@ -62,3 +62,23 @@ footer{position:relative;justify-content:center;text-align:center}
 footer .footer-copyright{display:block;width:100%;text-align:center;letter-spacing:.35px}
 footer a{position:absolute;right:clamp(16px,5vw,76px);top:50%;transform:translateY(-50%)}
 @media(max-width:650px){.brandmark{gap:7px}.brandmark span{font-size:11px;letter-spacing:.35px;white-space:normal;max-width:150px}footer{padding:22px 16px 48px;justify-content:center}footer .footer-copyright{width:100%;order:0}footer a{top:auto;right:auto;bottom:16px;left:50%;transform:translateX(-50%)}}
+
+/* Banner iklan di bawah pencarian */
+.ad-slider{position:relative;width:100%;margin:0 auto 28px;overflow:hidden;border-radius:13px;background:#f4f4f5;touch-action:pan-y;user-select:none}
+.ad-slider[hidden]{display:none!important}
+.ad-track{display:flex;width:100%;transition:transform .45s cubic-bezier(.22,.7,.2,1);will-change:transform}
+.ad-slide{display:block;flex:0 0 100%;width:100%;aspect-ratio:2161/800;overflow:hidden;border:0;padding:0;background:#eee;cursor:pointer}
+.ad-slide img{display:block;width:100%;height:100%;object-fit:cover}
+.ad-slide:focus-visible{outline:3px solid #e50914;outline-offset:-3px}
+.ad-indicators{position:absolute;left:50%;bottom:12px;transform:translate(-50%,8px);display:flex;align-items:center;gap:8px;padding:7px 11px;border-radius:30px;background:#17191dcc;color:#fff;font-size:11px;opacity:0;pointer-events:none;transition:opacity .25s,transform .25s}
+.ad-slider.show-indicators .ad-indicators{opacity:1;transform:translate(-50%,0)}
+.ad-dots{display:flex;gap:4px;align-items:center}
+.ad-dot{width:5px;height:5px;border-radius:9px;background:#ffffff80}
+.ad-dot.active{width:17px;background:#fff}
+@media(max-width:650px){.ad-slider{border-radius:9px;margin-bottom:22px}.ad-indicators{bottom:7px;padding:5px 8px;font-size:10px}}
+/* Admin banner */
+.banner-preview{width:100%;max-width:540px;aspect-ratio:2161/800;object-fit:cover;border-radius:9px;background:#f1f1f1}
+.banner-product-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;max-height:220px;overflow:auto;border:1px solid #ddd;border-radius:8px;padding:10px}
+.banner-product-list label{display:flex;grid-template-columns:auto 1fr;align-items:center;gap:7px;font-size:11px;font-weight:500}
+.banner-product-list input{width:auto}
+@media(max-width:650px){.banner-product-list{grid-template-columns:1fr}}
