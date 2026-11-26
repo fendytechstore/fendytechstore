@@ -107,3 +107,12 @@ footer a{position:absolute;right:clamp(16px,5vw,76px);top:50%;transform:translat
   #adSlider .ad-prev { left: 6px !important; }
   #adSlider .ad-next { right: 6px !important; }
 }
+
+/* V4.5: impor CSV produk massal dan footer setelah halaman detail */
+.csv-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:14px}
+.csv-file-label{display:inline-flex!important;align-items:center;justify-content:center;padding:10px 13px;border:1px solid #ddd;border-radius:8px;background:#f7f7f8;color:#333!important;cursor:pointer}
+.csv-file-label input{display:none!important}
+.csv-import-info{margin-top:12px;padding:11px 13px;border-radius:8px;background:#f5f6f8;color:#555;font-size:12px;line-height:1.6;white-space:pre-wrap}
+.detail-page{width:min(1200px,92%);margin:0 auto 48px;min-height:0}
+.detail-page[hidden]{display:none!important}
+@media(max-width:650px){.csv-actions{align-items:stretch;flex-direction:column}.csv-actions button,.csv-file-label{width:100%;text-align:center}.detail-page{width:94%;margin-bottom:32px}}

@@ -29,7 +29,80 @@ function editProduct(id){let x=products.find(y=>y.id===id);$("pId").value=x.id;$
 function editBanner(id){let x=banners.find(y=>y.id===id);if(!x)return;$("adProductSearch").value="";renderBannerProducts();$("adId").value=x.id;$("adTitle").value=x.title||"";$("adOrder").value=x.sort_order||0;$("adActive").value=String(x.is_active);$("adTarget").value=x.target_type||"none";$("adBrand").value=x.target_brand_id||"";$("adBrandWrap").hidden=x.target_type!=="brand";$("adProductsWrap").hidden=x.target_type!=="products";document.querySelectorAll("[data-ad-product]").forEach(c=>c.checked=(x.target_product_ids||[]).includes(c.value));$("adPreview").src=x.image_url;$("adPreview").hidden=false;$("bannerFormTitle").textContent="Revisi iklan · "+(x.title||"Banner");window.scrollTo({top:0,behavior:"smooth"})}
 function clearBanner(){$("adId").value=$("adTitle").value=$("adImage").value="";$("adOrder").value="0";$("adActive").value="true";$("adTarget").value="none";$("adBrand").value="";$("adBrandWrap").hidden=true;$("adProductsWrap").hidden=true;$("adPreview").hidden=true;$("bannerFormTitle").textContent="Tambah iklan baru";document.querySelectorAll("[data-ad-product]").forEach(c=>c.checked=false)}
 async function saveSetting(key,value){let {error}=await db.from("store_settings").upsert({key,value},{onConflict:"key"});if(error)alert(error.message);else{settings[key]=value;alert("Pengaturan berhasil disimpan.")}}
-document.addEventListener("DOMContentLoaded",()=>{if(!good()){msg("Lengkapi koneksi Supabase di config.js.");return}
+
+// Update produk massal melalui CSV (ID menjadi kunci pencocokan).
+function csvCell(value){let s=String(value??"");return /[",\r\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s}
+function parseCsv(text){
+ const rows=[];let row=[],cell="",quoted=false;
+ for(let i=0;i<text.length;i++){const c=text[i],n=text[i+1];
+  if(quoted){if(c==='"'&&n==='"'){cell+='"';i++}else if(c==='"')quoted=false;else cell+=c}
+  else if(c==='"'&&cell==="")quoted=true;
+  else if(c===","){row.push(cell);cell=""}
+  else if(c==="\n"){row.push(cell);if(row.some(v=>v.trim()!==""))rows.push(row);row=[];cell=""}
+  else if(c!=="\r")cell+=c;
+ }
+ if(quoted)throw Error("Format CSV tidak valid: tanda kutip belum ditutup.");
+ row.push(cell);if(row.some(v=>v.trim()!==""))rows.push(row);
+ if(!rows.length)throw Error("CSV kosong.");
+ const headers=rows.shift().map(x=>x.trim().toLowerCase());
+ if(!headers.includes("id"))throw Error("CSV wajib memiliki kolom id.");
+ return rows.map((values,i)=>{const obj={};headers.forEach((h,j)=>obj[h]=(values[j]??"").trim());obj.__line=i+2;return obj});
+}
+function downloadProductsCsv(){
+ const headers=["id","name","price","promo_price","bonus","status"];
+ const lines=[headers.join(",")].concat(products.map(p=>headers.map(h=>csvCell(p[h])).join(",")));
+ const blob=new Blob(["\uFEFF"+lines.join("\r\n")],{type:"text/csv;charset=utf-8"});
+ const url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download="template-update-produk.csv";a.click();URL.revokeObjectURL(url);
+}
+let pendingCsvRows=[];
+function previewProductsCsv(file){
+ const info=$("csvImportInfo");pendingCsvRows=[];
+ if(!file){info.textContent="Belum ada file CSV dipilih.";$("runProductsCsv").disabled=true;return}
+ const reader=new FileReader();
+ reader.onload=()=>{
+  try{
+   const rows=parseCsv(String(reader.result||"").replace(/^\uFEFF/,""));
+   const known=new Map(products.map(p=>[String(p.id),p])),errors=[],valid=[];
+   rows.forEach(r=>{
+    const p=known.get(r.id);
+    if(!r.id||!p){errors.push(`Baris ${r.__line}: ID "${r.id||"(kosong)"}" tidak ditemukan.`);return}
+    if(r.price!==undefined&&r.price!==""&&(!Number.isFinite(Number(r.price))||Number(r.price)<0)){errors.push(`Baris ${r.__line}: harga normal tidak valid.`);return}
+    if(r.promo_price!==undefined&&r.promo_price!==""&&(!Number.isFinite(Number(r.promo_price))||Number(r.promo_price)<0)){errors.push(`Baris ${r.__line}: harga promo tidak valid.`);return}
+    if(r.status!==undefined&&r.status!==""&&!["dijual","habis","tidak dijual"].includes(r.status.toLowerCase())){errors.push(`Baris ${r.__line}: status harus dijual, habis, atau tidak dijual.`);return}
+    valid.push(r);
+   });
+   if(!rows.length)errors.push("Tidak ada baris produk di CSV.");
+   pendingCsvRows=errors.length?[]:valid;
+   info.textContent=errors.length?`Ditemukan ${errors.length} kesalahan:\n${errors.slice(0,8).join("\n")}`:`${valid.length} produk siap di-update. Kolom harga normal kosong = tidak diubah; harga promo/bonus kosong = dikosongkan; status kosong = tidak diubah.`;
+   $("runProductsCsv").disabled=!valid.length||!!errors.length;
+  }catch(e){info.textContent=e.message;$("runProductsCsv").disabled=true}
+ };
+ reader.onerror=()=>{info.textContent="Gagal membaca file CSV.";$("runProductsCsv").disabled=true};
+ reader.readAsText(file,"UTF-8");
+}
+async function applyProductsCsv(){
+ if(!pendingCsvRows.length)return;
+ if(!confirm(`Yakin update ${pendingCsvRows.length} produk dari CSV? Perubahan akan langsung tersimpan ke Supabase.`))return;
+ const btn=$("runProductsCsv");btn.disabled=true;btn.textContent="Memproses...";
+ try{
+  let done=0;
+  for(const r of pendingCsvRows){
+   const patch={};
+   if(r.price!==undefined&&r.price!=="")patch.price=Number(r.price);
+   if(r.promo_price!==undefined)patch.promo_price=r.promo_price===""?null:Number(r.promo_price);
+   if(r.bonus!==undefined)patch.bonus=r.bonus;
+   if(r.status!==undefined&&r.status!=="")patch.status=r.status.toLowerCase();
+   if(Object.keys(patch).length){const {error}=await db.from("products").update(patch).eq("id",r.id);if(error)throw Error(`Produk ${r.id}: ${error.message}`)}
+   done++;
+  }
+  alert(`Berhasil memproses ${done} produk.`);
+  pendingCsvRows=[];$("importProductsCsv").value="";$("csvImportInfo").textContent="Impor selesai.";
+  await refresh();
+ }catch(e){alert("Impor berhenti: "+e.message+" Produk yang sudah diproses sebelumnya mungkin sudah tersimpan.");await refresh()}
+ finally{btn.textContent="Impor & update massal";btn.disabled=!pendingCsvRows.length}
+}
+
+document.addEventListener("DOMContentLoaded",()=>{if(!good()){msg("Lengkapi koneksi Supabase di config.js.");return}$("exportProductsCsv").onclick=downloadProductsCsv;$("importProductsCsv").onchange=e=>previewProductsCsv(e.target.files[0]);$("runProductsCsv").onclick=applyProductsCsv;
 async function start(){let {data:{user}}=await db.auth.getUser();if(!user)return;let {data,error}=await db.from("admin_users").select("user_id").eq("user_id",user.id).maybeSingle();if(error||!data){msg("Akun belum terdaftar sebagai admin. Tambahkan User UID ke tabel admin_users sesuai SETUP.md.");await db.auth.signOut();return}$("login").hidden=true;$("dashboard").hidden=false;await refresh();clearProduct();subscribeOrders()}
 $("loginForm").onsubmit=async e=>{e.preventDefault();let {error}=await db.auth.signInWithPassword({email:$("email").value,password:$("password").value});if(error){msg(error.message);return}await start()};$("enableOrderNotifications").onclick=async()=>{if(!("Notification"in window)){alert("Browser ini tidak mendukung notifikasi desktop.");return}let permission=await Notification.requestPermission();alert(permission==="granted"?"Notifikasi pesanan berhasil diaktifkan.":"Izin notifikasi belum diberikan.")};$("logout").onclick=async()=>{await db.auth.signOut();location.reload()};db.auth.getSession().then(({data})=>{if(data.session)start()});
 document.querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>{document.querySelectorAll("[data-tab]").forEach(x=>x.classList.toggle("active",x===b));["overview","categories","brands","products","banners","orders","tracking","social","map"].forEach(t=>$("tab-"+t).hidden=t!==b.dataset.tab);$("pageTitle").textContent=b.textContent.trim().replace(/^[^A-Za-z]+/,"")});
