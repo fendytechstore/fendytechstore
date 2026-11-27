@@ -116,3 +116,12 @@ footer a{position:absolute;right:clamp(16px,5vw,76px);top:50%;transform:translat
 .detail-page{width:min(1200px,92%);margin:0 auto 48px;min-height:0}
 .detail-page[hidden]{display:none!important}
 @media(max-width:650px){.csv-actions{align-items:stretch;flex-direction:column}.csv-actions button,.csv-file-label{width:100%;text-align:center}.detail-page{width:94%;margin-bottom:32px}}
+
+
+/* V4.5 — notifikasi pesanan */
+#notificationSettingsCard .notify-check{display:flex;align-items:center;gap:9px}
+#notificationSettingsCard .notify-check input{width:auto;min-width:18px;height:18px}
+#notificationSettingsCard input[type="range"]{width:100%;accent-color:#e50914}
+#notificationSettingsCard .csv-actions{display:flex;gap:9px;flex-wrap:wrap;margin:14px 0}
+#notificationSettingsCard .field-help{line-height:1.6}
+@media(max-width:650px){#notificationSettingsCard .csv-actions>*{flex:1 1 100%}}

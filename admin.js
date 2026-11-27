@@ -102,12 +102,83 @@ async function applyProductsCsv(){
  finally{btn.textContent="Impor & update massal";btn.disabled=!pendingCsvRows.length}
 }
 
-document.addEventListener("DOMContentLoaded",()=>{if(!good()){msg("Lengkapi koneksi Supabase di config.js.");return}$("exportProductsCsv").onclick=downloadProductsCsv;$("importProductsCsv").onchange=e=>previewProductsCsv(e.target.files[0]);$("runProductsCsv").onclick=applyProductsCsv;
+
+// Notifikasi pesanan: suara lokal per perangkat + PWA + langganan Web Push.
+const NOTIFY_STORE_KEY="fendy_order_notify_v1";
+let orderNotify={enabled:true,mode:"builtin",volume:80,customAudio:"",customName:""};
+function loadOrderNotify(){
+ try{orderNotify={...orderNotify,...JSON.parse(localStorage.getItem(NOTIFY_STORE_KEY)||"{}")}}catch(e){}
+ const set=(id,v)=>{const el=$(id);if(el)el.value=v};
+ if($("orderSoundEnabled"))$("orderSoundEnabled").checked=orderNotify.enabled!==false;
+ set("orderSoundMode",orderNotify.mode||"builtin");set("orderSoundVolume",orderNotify.volume??80);
+ if($("notifyStatus"))$("notifyStatus").textContent=orderNotify.customName?"Suara khusus tersimpan: "+orderNotify.customName:"Gunakan suara bawaan atau upload suara sendiri.";
+}
+function persistOrderNotify(){localStorage.setItem(NOTIFY_STORE_KEY,JSON.stringify(orderNotify))}
+async function playOrderSound(){
+ if(orderNotify.enabled===false)return;
+ const volume=Math.max(0,Math.min(1,Number(orderNotify.volume??80)/100));
+ if(orderNotify.mode==="custom"&&orderNotify.customAudio){
+  try{const a=new Audio(orderNotify.customAudio);a.volume=volume;await a.play();return}catch(e){console.warn("Suara khusus gagal diputar",e)}
+ }
+ try{
+  const AC=window.AudioContext||window.webkitAudioContext;if(!AC)return;
+  const ctx=new AC();if(ctx.state==="suspended")await ctx.resume();
+  [880,1174].forEach((freq,i)=>{const osc=ctx.createOscillator(),gain=ctx.createGain();osc.type="sine";osc.frequency.value=freq;gain.gain.setValueAtTime(0,ctx.currentTime+i*.19);gain.gain.linearRampToValueAtTime(.22*volume,ctx.currentTime+i*.19+.025);gain.gain.exponentialRampToValueAtTime(.001,ctx.currentTime+i*.19+.22);osc.connect(gain);gain.connect(ctx.destination);osc.start(ctx.currentTime+i*.19);osc.stop(ctx.currentTime+i*.19+.24)});setTimeout(()=>ctx.close(),900);
+ }catch(e){console.warn("Audio not available",e)}
+}
+async function showOrderNotification(order){
+ await playOrderSound();
+ if("Notification"in window&&Notification.permission==="granted"){
+  try{new Notification("Pesanan baru masuk!",{body:`${order.order_code||"Order baru"} · ${order.customer_name||"Pelanggan"}`,icon:"logo-fendy.png",tag:"order-"+(order.id||Date.now()),renotify:false})}catch(e){}
+ }
+}
+async function registerStoreWorker(){
+ if(!("serviceWorker"in navigator))return;
+ try{await navigator.serviceWorker.register("./service-worker.js");}catch(e){console.warn("PWA service worker:",e)}
+}
+function urlBase64ToUint8Array(base64){const padding="=".repeat((4-base64.length%4)%4),raw=atob((base64+padding).replace(/-/g,"+").replace(/_/g,"/"));return Uint8Array.from([...raw].map(c=>c.charCodeAt(0)))}
+async function enableStorePush(){
+ if(!("Notification"in window)||!("serviceWorker"in navigator)||!("PushManager"in window)){alert("Browser ini belum mendukung Push Notification.");return}
+ const key=C.VAPID_PUBLIC_KEY||"";
+ if(!key||key.includes("ISI_VAPID")){alert("Push saat aplikasi ditutup belum siap: isi VAPID_PUBLIC_KEY di config.js dan selesaikan setup Edge Function sesuai file NOTIFIKASI-PUSH-SETUP.txt.");return}
+ const permission=await Notification.requestPermission();if(permission!=="granted"){alert("Izin notifikasi belum diberikan.");return}
+ const reg=await navigator.serviceWorker.ready;
+ let sub=await reg.pushManager.getSubscription();
+ if(!sub)sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:urlBase64ToUint8Array(key)});
+ const {data:{user}}=await db.auth.getUser();if(!user)throw Error("Sesi admin tidak ditemukan.");
+ const {error}=await db.from("admin_push_subscriptions").upsert({user_id:user.id,endpoint:sub.endpoint,subscription:sub.toJSON(),updated_at:new Date().toISOString()},{onConflict:"user_id,endpoint"});
+ if(error)throw error;
+ $("notifyStatus").textContent="Izin aktif dan perangkat berhasil didaftarkan untuk Push Notification.";
+ alert("Notifikasi browser aktif dan perangkat sudah didaftarkan. Pastikan SQL dan Edge Function Push sudah dipasang agar order tetap terkirim saat dashboard ditutup.");
+}
+function initNotificationControls(){
+ loadOrderNotify();
+ $("saveOrderSound")?.addEventListener("click",()=>{
+  orderNotify.enabled=$("orderSoundEnabled").checked;orderNotify.mode=$("orderSoundMode").value;orderNotify.volume=Number($("orderSoundVolume").value);
+  persistOrderNotify();$("notifyStatus").textContent="Pengaturan suara tersimpan di perangkat ini.";
+ });
+ $("testOrderSound")?.addEventListener("click",async()=>{
+  orderNotify.enabled=$("orderSoundEnabled").checked;orderNotify.mode=$("orderSoundMode").value;orderNotify.volume=Number($("orderSoundVolume").value);
+  if(orderNotify.mode==="custom"&&!orderNotify.customAudio){alert("Upload file suara terlebih dahulu.");return}await playOrderSound();
+ });
+ $("orderSoundFile")?.addEventListener("change",e=>{
+  const f=e.target.files?.[0];if(!f)return;
+  if(f.size>2*1024*1024){alert("Ukuran suara maksimal 2 MB.");e.target.value="";return}
+  if(!/^audio\//.test(f.type)){alert("Pilih file audio MP3, OGG, atau WAV.");e.target.value="";return}
+  const r=new FileReader();r.onload=()=>{orderNotify.customAudio=String(r.result);orderNotify.customName=f.name;orderNotify.mode="custom";$("orderSoundMode").value="custom";$("notifyStatus").textContent="File suara siap: "+f.name+". Klik Simpan pengaturan suara.";};r.readAsDataURL(f);
+ });
+ $("enablePushNotifications")?.addEventListener("click",()=>enableStorePush().catch(e=>{console.error(e);alert("Gagal mengaktifkan Push: "+e.message)}));
+}
+let deferredInstallPrompt=null;
+window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();deferredInstallPrompt=e;if($("installPwa"))$("installPwa").hidden=false});
+window.addEventListener("appinstalled",()=>{if($("installPwa"))$("installPwa").hidden=true});
+
+document.addEventListener("DOMContentLoaded",()=>{registerStoreWorker();initNotificationControls();$("installPwa")?.addEventListener("click",async()=>{if(!deferredInstallPrompt){alert("Gunakan menu browser: Tambahkan ke layar utama / Install app.");return}deferredInstallPrompt.prompt();await deferredInstallPrompt.userChoice;deferredInstallPrompt=null});if(!good()){msg("Lengkapi koneksi Supabase di config.js.");return}$("exportProductsCsv").onclick=downloadProductsCsv;$("importProductsCsv").onchange=e=>previewProductsCsv(e.target.files[0]);$("runProductsCsv").onclick=applyProductsCsv;
 async function start(){let {data:{user}}=await db.auth.getUser();if(!user)return;let {data,error}=await db.from("admin_users").select("user_id").eq("user_id",user.id).maybeSingle();if(error||!data){msg("Akun belum terdaftar sebagai admin. Tambahkan User UID ke tabel admin_users sesuai SETUP.md.");await db.auth.signOut();return}$("login").hidden=true;$("dashboard").hidden=false;await refresh();clearProduct();subscribeOrders()}
 $("loginForm").onsubmit=async e=>{e.preventDefault();let {error}=await db.auth.signInWithPassword({email:$("email").value,password:$("password").value});if(error){msg(error.message);return}await start()};$("enableOrderNotifications").onclick=async()=>{if(!("Notification"in window)){alert("Browser ini tidak mendukung notifikasi desktop.");return}let permission=await Notification.requestPermission();alert(permission==="granted"?"Notifikasi pesanan berhasil diaktifkan.":"Izin notifikasi belum diberikan.")};$("logout").onclick=async()=>{await db.auth.signOut();location.reload()};db.auth.getSession().then(({data})=>{if(data.session)start()});
 document.querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>{document.querySelectorAll("[data-tab]").forEach(x=>x.classList.toggle("active",x===b));["overview","categories","brands","products","banners","orders","tracking","social","map"].forEach(t=>$("tab-"+t).hidden=t!==b.dataset.tab);$("pageTitle").textContent=b.textContent.trim().replace(/^[^A-Za-z]+/,"")});
 ["brandSearch","productSearch","productStatusFilter"].forEach(id=>$(id)?.addEventListener(id==="productStatusFilter"?"change":"input",renderTables));
-function subscribeOrders(){if(!db)return;try{db.channel("admin-order-alerts").on("postgres_changes",{event:"INSERT",schema:"public",table:"orders"},payload=>{const a=$("orderAlert");a.hidden=false;a.textContent="🔔 Pesanan baru masuk: "+(payload.new.order_code||"Pesanan baru");if("Notification"in window){if(Notification.permission==="granted")new Notification("Pesanan baru masuk",{body:`${payload.new.order_code||""} · ${payload.new.customer_name||"Pelanggan"}`});}refresh()}).subscribe()}catch(e){console.warn("Realtime pesanan tidak aktif",e)}}
+function subscribeOrders(){if(!db)return;try{db.channel("admin-order-alerts").on("postgres_changes",{event:"INSERT",schema:"public",table:"orders"},payload=>{const a=$("orderAlert");a.hidden=false;a.textContent="🔔 Pesanan baru masuk: "+(payload.new.order_code||"Pesanan baru");showOrderNotification(payload.new);refresh()}).subscribe()}catch(e){console.warn("Realtime pesanan tidak aktif",e)}}
 $("adTarget").onchange=()=>{$("adBrandWrap").hidden=$("adTarget").value!=="brand";$("adProductsWrap").hidden=$("adTarget").value!=="products"};
 $("adProductSearch").oninput=()=>{let selected=[...document.querySelectorAll("[data-ad-product]:checked")].map(x=>x.value);renderBannerProducts($("adProductSearch").value);document.querySelectorAll("[data-ad-product]").forEach(c=>c.checked=selected.includes(c.value))};
 $("adImage").onchange=()=>{let f=$("adImage").files[0];if(f){$("adPreview").src=URL.createObjectURL(f);$("adPreview").hidden=false}};
