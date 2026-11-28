@@ -27,6 +27,17 @@
 </div>
 <div id="csvImportInfo" class="csv-import-info" aria-live="polite">Belum ada file CSV dipilih.</div>
 </div>
+<div class="admin-card csv-mass-update" id="newProductsCsvCard">
+<h2>Input produk baru massal via CSV</h2>
+<p class="field-help">Gunakan template khusus produk BARU. Isi link foto secara manual pada kolom image_url. Brand dan kategori dapat diisi menggunakan ID atau nama yang sudah terdaftar. Produk lama tidak akan ditimpa.</p>
+<div class="csv-actions">
+<button type="button" id="downloadNewProductsTemplate" class="btn-light">↓ Unduh template produk baru</button>
+<label class="csv-file-label">Pilih file CSV<input type="file" id="importNewProductsCsv" accept=".csv,text/csv"></label>
+<button type="button" id="runNewProductsCsv" class="btn-red" disabled>Import produk baru</button>
+</div>
+<div id="newProductsCsvInfo" class="csv-import-info" aria-live="polite">Belum ada file CSV dipilih.</div>
+<p class="field-help">Kolom: name, price, promo_price, brand, category, image_url, specs, bonus, stock, status, is_service, slug. Kolom wajib: name, price, brand, category. Baris spesifikasi dalam satu sel gunakan tanda | sebagai pemisah. Status: dijual / habis / tidak dijual. is_service: true / false.</p>
+</div>
 <div class="admin-card"><h2>Semua produk</h2><div class="admin-filters"><input id="productSearch" class="admin-filter" type="search" placeholder="Cari nama produk atau ID (P01)..."><select id="productStatusFilter" class="admin-filter"><option value="">Semua status</option><option value="dijual">Dijual</option><option value="habis">Habis</option><option value="tidak dijual">Tidak dijual</option></select></div><div id="productRows" class="admin-table-wrap"></div></div></section>
 <section id="tab-banners" hidden><div class="admin-card"><h2 id="bannerFormTitle">Tambah iklan baru</h2><input id="adId" type="hidden"><div class="admin-grid">
 <label class="wide">Nama / judul iklan<input id="adTitle" placeholder="Contoh: Promo Apple"></label>

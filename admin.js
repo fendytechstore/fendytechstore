@@ -103,6 +103,102 @@ async function applyProductsCsv(){
 }
 
 
+
+// INPUT PRODUK BARU MASSAL VIA CSV — terpisah dari fitur update CSV.
+let pendingNewProductsCsv=[];
+function csvDownloadFile(filename,headers,example){
+ const lines=[headers.join(","),example.map(csvCell).join(",")];
+ const blob=new Blob(["\uFEFF"+lines.join("\r\n")],{type:"text/csv;charset=utf-8"});
+ const url=URL.createObjectURL(blob),a=document.createElement("a");
+ a.href=url;a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+function downloadNewProductsTemplate(){
+ const h=["name","price","promo_price","brand","category","image_url","specs","bonus","stock","status","is_service","slug"];
+ const e=["CONTOH NAMA PRODUK","1500000","","APPLE","SMARTPHONE","https://contoh.com/foto-produk.jpg","Prosesor: A-series | RAM: 8GB | Penyimpanan: 256GB","Bonus casing", "10","dijual","false",""];
+ csvDownloadFile("template-input-produk-baru.csv",h,e);
+}
+function parseNewProductsCsv(text){
+ const rows=[];let row=[],cell="",quoted=false;
+ for(let i=0;i<text.length;i++){
+  const c=text[i],n=text[i+1];
+  if(quoted){if(c==='"'&&n==='"'){cell+='"';i++}else if(c==='"')quoted=false;else cell+=c}
+  else if(c==='"'&&cell==="")quoted=true;
+  else if(c===","){row.push(cell);cell=""}
+  else if(c==="\n"){row.push(cell);if(row.some(v=>v.trim()!==""))rows.push(row);row=[];cell=""}
+  else if(c!=="\r")cell+=c;
+ }
+ if(quoted)throw Error("Format CSV tidak valid: tanda kutip belum ditutup.");
+ row.push(cell);if(row.some(v=>v.trim()!==""))rows.push(row);
+ if(rows.length<2)throw Error("CSV belum memiliki data produk.");
+ const headers=rows.shift().map(x=>x.trim().toLowerCase());
+ const required=["name","price","brand","category"];
+ const missing=required.filter(h=>!headers.includes(h));
+ if(missing.length)throw Error("Kolom wajib tidak ditemukan: "+missing.join(", "));
+ const allowed=["name","price","promo_price","brand","category","image_url","specs","bonus","stock","status","is_service","slug"];
+ const unknown=headers.filter(h=>!allowed.includes(h));
+ if(unknown.length)throw Error("Kolom tidak dikenal: "+unknown.join(", "));
+ return rows.map((values,i)=>{const o={};headers.forEach((h,j)=>o[h]=(values[j]??"").trim());o.__line=i+2;return o});
+}
+function findCatalogItem(value,list){
+ const q=String(value||"").trim().toLowerCase();
+ if(!q)return null;
+ return list.find(x=>String(x.id).toLowerCase()===q)||list.find(x=>String(x.name||"").trim().toLowerCase()===q)||null;
+}
+function previewNewProductsCsv(file){
+ const info=$("newProductsCsvInfo");pendingNewProductsCsv=[];
+ if(!file){info.textContent="Belum ada file CSV dipilih.";$("runNewProductsCsv").disabled=true;return}
+ const reader=new FileReader();
+ reader.onload=()=>{
+  try{
+   const rows=parseNewProductsCsv(String(reader.result||"").replace(/^\uFEFF/,""));
+   const errors=[],valid=[],seenNames=new Set(),seenSlugs=new Set();
+   rows.forEach(r=>{
+    const line=r.__line,name=(r.name||"").trim(),brand=findCatalogItem(r.brand,brands),category=findCatalogItem(r.category,cats);
+    const price=Number(r.price);
+    if(!name){errors.push(`Baris ${line}: nama produk wajib diisi.`);return}
+    if(r.price===""||!Number.isFinite(price)||price<0){errors.push(`Baris ${line}: harga normal wajib berupa angka 0 atau lebih.`);return}
+    if(!brand){errors.push(`Baris ${line}: brand "${r.brand}" tidak ditemukan. Gunakan ID/nama brand yang sudah terdaftar.`);return}
+    if(!category){errors.push(`Baris ${line}: kategori "${r.category}" tidak ditemukan. Gunakan ID/nama kategori yang sudah terdaftar.`);return}
+    const service=["true","1","ya","yes"].includes((r.is_service||"false").toLowerCase());
+    const promo=r.promo_price===""?null:Number(r.promo_price);
+    if(r.promo_price!==""&&(!Number.isFinite(promo)||promo<0)){errors.push(`Baris ${line}: harga promo tidak valid.`);return}
+    const stock=r.stock===""?null:Number(r.stock);
+    if(r.stock!==""&&(!Number.isInteger(stock)||stock<0)){errors.push(`Baris ${line}: stok harus bilangan bulat 0 atau lebih.`);return}
+    const status=(r.status||"dijual").toLowerCase();
+    if(!["dijual","habis","tidak dijual"].includes(status)){errors.push(`Baris ${line}: status harus dijual, habis, atau tidak dijual.`);return}
+    if(r.is_service&&!["true","false","1","0","ya","tidak","yes","no"].includes(r.is_service.toLowerCase())){errors.push(`Baris ${line}: is_service harus true atau false.`);return}
+    const productSlug=(r.slug||slug(name)).trim();
+    const nameKey=name.toLowerCase(),slugKey=productSlug.toLowerCase();
+    if(seenNames.has(nameKey)||products.some(p=>(p.name||"").trim().toLowerCase()===nameKey)){errors.push(`Baris ${line}: nama produk sudah ada/duplikat (${name}).`);return}
+    if(seenSlugs.has(slugKey)||products.some(p=>(p.slug||"").toLowerCase()===slugKey)){errors.push(`Baris ${line}: slug sudah ada/duplikat (${productSlug}).`);return}
+    seenNames.add(nameKey);seenSlugs.add(slugKey);
+    valid.push({name,slug:productSlug,price:service?0:price,promo_price:service?null:promo,is_service:service,brand_id:brand.id,category_id:category.id,image_url:r.image_url||"",specs:(r.specs||"").replace(/\s*\|\s*/g,"\n"),bonus:r.bonus||"",stock,status,is_active:true});
+   });
+   if(!valid.length&&!errors.length)errors.push("Tidak ada data produk yang bisa diimpor.");
+   pendingNewProductsCsv=errors.length?[]:valid;
+   info.textContent=errors.length?`Ditemukan ${errors.length} kesalahan. Tidak ada produk yang disimpan:\n${errors.slice(0,12).join("\n")}`:`${valid.length} produk baru lolos pemeriksaan. Belum disimpan ke database. Link foto diambil dari kolom image_url.`;
+   $("runNewProductsCsv").disabled=!valid.length||!!errors.length;
+  }catch(e){info.textContent=e.message;$("runNewProductsCsv").disabled=true}
+ };
+ reader.onerror=()=>{info.textContent="Gagal membaca file CSV.";$("runNewProductsCsv").disabled=true};
+ reader.readAsText(file,"UTF-8");
+}
+async function applyNewProductsCsv(){
+ if(!pendingNewProductsCsv.length)return;
+ if(!confirm(`Simpan ${pendingNewProductsCsv.length} produk BARU ke Supabase? Produk lama tidak akan diubah.`))return;
+ const btn=$("runNewProductsCsv");btn.disabled=true;btn.textContent="Menyimpan...";
+ try{
+  let next=products.reduce((n,p)=>{const v=productIdOrder(p.id);return Math.max(n,v===Number.MAX_SAFE_INTEGER?0:v)},0)+1;
+  const rows=pendingNewProductsCsv.map(p=>({...p,id:"P"+String(next++).padStart(2,"0")}));
+  const {error}=await db.from("products").insert(rows);
+  if(error)throw error;
+  const count=rows.length;pendingNewProductsCsv=[];$("importNewProductsCsv").value="";
+  $("newProductsCsvInfo").textContent=`Berhasil menambahkan ${count} produk baru.`;
+  await refresh();alert(`Berhasil menambahkan ${count} produk baru.`);
+ }catch(e){alert("Gagal menyimpan produk baru: "+e.message);$("newProductsCsvInfo").textContent="Impor gagal: "+e.message}
+ finally{btn.textContent="Import produk baru";btn.disabled=!pendingNewProductsCsv.length}
+}
+
 // Notifikasi pesanan: suara lokal per perangkat + PWA + langganan Web Push.
 const NOTIFY_STORE_KEY="fendy_order_notify_v1";
 let orderNotify={enabled:true,mode:"builtin",volume:80,customAudio:"",customName:""};
@@ -173,7 +269,7 @@ let deferredInstallPrompt=null;
 window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();deferredInstallPrompt=e;if($("installPwa"))$("installPwa").hidden=false});
 window.addEventListener("appinstalled",()=>{if($("installPwa"))$("installPwa").hidden=true});
 
-document.addEventListener("DOMContentLoaded",()=>{registerStoreWorker();initNotificationControls();$("installPwa")?.addEventListener("click",async()=>{if(!deferredInstallPrompt){alert("Gunakan menu browser: Tambahkan ke layar utama / Install app.");return}deferredInstallPrompt.prompt();await deferredInstallPrompt.userChoice;deferredInstallPrompt=null});if(!good()){msg("Lengkapi koneksi Supabase di config.js.");return}$("exportProductsCsv").onclick=downloadProductsCsv;$("importProductsCsv").onchange=e=>previewProductsCsv(e.target.files[0]);$("runProductsCsv").onclick=applyProductsCsv;
+document.addEventListener("DOMContentLoaded",()=>{registerStoreWorker();initNotificationControls();$("installPwa")?.addEventListener("click",async()=>{if(!deferredInstallPrompt){alert("Gunakan menu browser: Tambahkan ke layar utama / Install app.");return}deferredInstallPrompt.prompt();await deferredInstallPrompt.userChoice;deferredInstallPrompt=null});if(!good()){msg("Lengkapi koneksi Supabase di config.js.");return}$("exportProductsCsv").onclick=downloadProductsCsv;$("importProductsCsv").onchange=e=>previewProductsCsv(e.target.files[0]);$("runProductsCsv").onclick=applyProductsCsv;$("downloadNewProductsTemplate").onclick=downloadNewProductsTemplate;$("importNewProductsCsv").onchange=e=>previewNewProductsCsv(e.target.files[0]);$("runNewProductsCsv").onclick=applyNewProductsCsv;
 async function start(){let {data:{user}}=await db.auth.getUser();if(!user)return;let {data,error}=await db.from("admin_users").select("user_id").eq("user_id",user.id).maybeSingle();if(error||!data){msg("Akun belum terdaftar sebagai admin. Tambahkan User UID ke tabel admin_users sesuai SETUP.md.");await db.auth.signOut();return}$("login").hidden=true;$("dashboard").hidden=false;await refresh();clearProduct();subscribeOrders()}
 $("loginForm").onsubmit=async e=>{e.preventDefault();let {error}=await db.auth.signInWithPassword({email:$("email").value,password:$("password").value});if(error){msg(error.message);return}await start()};$("enableOrderNotifications").onclick=async()=>{if(!("Notification"in window)){alert("Browser ini tidak mendukung notifikasi desktop.");return}let permission=await Notification.requestPermission();alert(permission==="granted"?"Notifikasi pesanan berhasil diaktifkan.":"Izin notifikasi belum diberikan.")};$("logout").onclick=async()=>{await db.auth.signOut();location.reload()};db.auth.getSession().then(({data})=>{if(data.session)start()});
 document.querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>{document.querySelectorAll("[data-tab]").forEach(x=>x.classList.toggle("active",x===b));["overview","categories","brands","products","banners","orders","tracking","social","map"].forEach(t=>$("tab-"+t).hidden=t!==b.dataset.tab);$("pageTitle").textContent=b.textContent.trim().replace(/^[^A-Za-z]+/,"")});
